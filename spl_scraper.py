@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import sys
 from pathlib import Path
 from typing import Union
 
@@ -43,8 +44,6 @@ HEADERS = {
     'X-Requested-With': 'XMLHttpRequest'
 }
 REGIONS_HTML = 'regions_list.html'
-RESULTS_JSON = 'region_cities_districts.json'
-RESULTS_EXCEL = 'region_cities_districts.json'
 
 
 def get_regions(use_arabic: bool = True) -> dict:
@@ -166,9 +165,9 @@ def save_to_excel(save_path: Path, json_source: Path):
     workbook.save(filename=save_path)
 
 
-async def get_and_merge_districts(region_city_mapping: dict) -> dict:
+async def get_and_merge_districts(region_city_mapping: dict, use_arabic: bool = True) -> dict:
     for region, cities in region_city_mapping.items():
-        tasks = [get_districts(city['id']) for city in cities]
+        tasks = [get_districts(city['id'], use_arabic) for city in cities]
         get_districts_res = await asyncio.gather(*tasks)
         merged_districts = {
             city_id: dists for city_dist in get_districts_res for city_id, dists in city_dist.items() if city_dist
@@ -180,21 +179,25 @@ async def get_and_merge_districts(region_city_mapping: dict) -> dict:
     return region_city_mapping
 
 
-async def main():
-    regions = get_regions()
-    _logger.info(f"Scraped {len(regions)} regions")
-    region_city_mapping = await get_cities(regions)
-    res_data = await get_and_merge_districts(region_city_mapping)
+async def main(use_arabic: bool = True):
+    lang = 'ar' if use_arabic else 'en'
+    root_path = Path(__file__).resolve().parent
+    json_results_path = root_path / f'region_cities_districts_{lang}.json'
 
-    parent = Path(__file__).resolve().parent
+    if not json_results_path.exists():
+        regions = get_regions(use_arabic)
+        _logger.info(f"Scraped {len(regions)} regions")
+        region_city_mapping = await get_cities(regions, use_arabic)
+        res_data = await get_and_merge_districts(region_city_mapping, use_arabic)
+        with open(json_results_path, "w+", encoding='utf-8') as f:
+            f.write(json.dumps(res_data))
 
-    json_results_path = parent / RESULTS_JSON
-    with open(json_results_path, "w+", encoding='utf-8') as f:
-        f.write(json.dumps(res_data))
-
-    excel_results_path = parent / RESULTS_EXCEL
+    excel_results_path = root_path / f'saudi_postal_maps_regions_{lang}.xlsx'
     save_to_excel(excel_results_path, json_results_path)
 
 
 if __name__ == '__main__':
-    asyncio.run(main())
+    arabic = True
+    if len(sys.argv) > 1 and sys.argv[1] == 'en':
+        arabic = False
+    asyncio.run(main(arabic))
